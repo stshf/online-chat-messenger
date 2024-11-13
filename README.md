@@ -56,3 +56,25 @@ Server: Javascript(Node.js)
         - Node.jsのバージョンを変更
             - 最新バージョン: `nvm use node`
             - 安定バージョン: `nvm use --lts`
+    - 動作確認
+        - sample fileの作成 [引用](https://nodejs.org/api/synopsis.html)
+            hello-world.js
+            ```node.js
+            const http = require('node:http');
+
+            const hostname = '127.0.0.1';
+            const port = 3000;
+
+            const server = http.createServer((req, res) => {
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'text/plain');
+            res.end('Hello, World!\n');
+            });
+
+            server.listen(port, hostname, () => {
+            console.log(`Server running at http://${hostname}:${port}/`);
+            });
+            ```
+        - 実行: `node hello-world.js`
+            result
+            ブラウザ上で`127.0.0.1:3000` or `http://localhost:3000`を入力し、`Hello, World!`が表示されたらOK
