@@ -78,7 +78,3 @@ Server: Javascript(Node.js)
         - 実行: `node hello-world.js`
             result
             ブラウザ上で`127.0.0.1:3000` or `http://localhost:3000`を入力し、`Hello, World!`が表示されたらOK
-
-
-
-
