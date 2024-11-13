@@ -56,6 +56,3 @@ Server: Javascript(Node.js)
         - Node.jsのバージョンを変更
             - 最新バージョン: `nvm use node`
             - 安定バージョン: `nvm use --lts`
-
-
-
