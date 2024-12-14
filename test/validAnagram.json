@@ -1,0 +1,6 @@
+{
+    "method": "validAnagram",
+    "params": ["anagram", "nagaram"],
+    "param_types": ["string", "string"],
+    "id": 1
+}

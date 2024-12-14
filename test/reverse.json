@@ -1,0 +1,6 @@
+{
+    "method": "reverse",
+    "params": ["hello, world!"],
+    "param_types": ["string"],
+    "id": 1
+}

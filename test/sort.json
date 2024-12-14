@@ -1,0 +1,6 @@
+{
+    "method": "sort",
+    "params": ["abc", "cba", "bbc", "bca", "trump", "biden", "clinton", "obama", "bush"],
+    "param_types": ["string", "string", "string", "string", "string", "string", "string", "string", "string"],
+    "id": 1
+}
