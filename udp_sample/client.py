@@ -18,7 +18,7 @@ try:
     sent = sock.sendto(message, (server_address, server_port))
     print('Send {} bytes to server'.format(sent))
 
-    # receive response from server
+    # receive response from server for all listening sockets
     print('waiting to receive')
     data, server = sock.recvfrom(4096)
     print('received {!r}'.format(data))
