@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import socket
 import threading
-from typing import Tuple
+from typing import Callable, Tuple
 
 
 TCP_SERVER_ADDRESS = "0.0.0.0"
@@ -35,21 +35,27 @@ def display_recv_message(data: bytes) -> None:
     print(f"{SPACE}message: {message.decode()}")
 
 
-def recv_and_display_message(sock: socket.socket) -> None:
-    """Receive UDP packets and display them until the socket is closed."""
+def recv_messages(sock: socket.socket, handler: Callable[[bytes], None]) -> None:
+    """Receive UDP packets and handle them using a callback."""
 
     while True:
         try:
             data, _ = sock.recvfrom(4096)
             if not data:
                 break
-            display_recv_message(data)
+            handler(data)
         except ConnectionResetError:
             print("Server disconnected")
             break
         except Exception as exc:  # pragma: no cover - best effort logging
             print(f"Error receiving message: {exc}")
             break
+
+
+def recv_and_display_message(sock: socket.socket) -> None:
+    """Wrapper to display received UDP packets."""
+
+    recv_messages(sock, display_recv_message)
 
 """
 # TCP for chatroom management
@@ -168,8 +174,17 @@ class ChatClient:
         operation_payload_size = int.from_bytes(response[3:32], byteorder="big")
         self.token = response[32 + roomname_size : 32 + roomname_size + operation_payload_size].decode()
 
-    def start_udp(self) -> None:
-        """Start UDP socket and receiving thread."""
+    def start_udp(
+        self, message_handler: Callable[[bytes], None] | None = None
+    ) -> None:
+        """Start UDP socket and receiving thread.
+
+        Parameters
+        ----------
+        message_handler:
+            Optional callback executed for every received UDP packet.
+            If omitted, messages are printed to stdout.
+        """
 
         try:
             udp_port = int(self.token)
@@ -178,7 +193,13 @@ class ChatClient:
 
         self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_sock.bind(("", udp_port))
-        thread = threading.Thread(target=recv_and_display_message, args=(self.udp_sock,), daemon=True)
+
+        handler = message_handler if message_handler else display_recv_message
+        thread = threading.Thread(
+            target=recv_messages,
+            args=(self.udp_sock, handler),
+            daemon=True,
+        )
         thread.start()
 
     def send_message(self, message: str) -> None:

@@ -56,3 +56,11 @@ Server: Javascript(Node.js)
         - Node.jsのバージョンを変更
             - 最新バージョン: `nvm use node`
             - 安定バージョン: `nvm use --lts`
+
+## GUI Client
+Python版クライアントには簡易的なTkinter製GUIを用意しています。
+実行は次のコマンドです。
+```bash
+python gui_client.py
+```
+
