@@ -1,21 +1,28 @@
+"""Simple chat server implementation."""
+
+from __future__ import annotations
+
+import signal
 import socket
+import sys
 import threading
 import time
-import signal
-import sys
-import hashlib
-# {'roomname': {'token': last_active_time}}
-# if room owner : token = client port number
-# if joiner : token = hash(room_name) % 65535
-chatrooms = {}
-# Store owner information: {'roomname': owner_token}
-room_owners = {}
+from typing import Dict, Tuple
 
-# Global socket variables for cleanup
-sock_tcp = None
-sock = None
 
-def cleanup_resources():
+TCP_SERVER_ADDRESS = "0.0.0.0"
+TCP_SERVER_PORT = 9000
+UDP_SERVER_ADDRESS = "0.0.0.0"
+UDP_SERVER_PORT = 9001
+
+
+chatrooms: Dict[str, Dict[str, float]] = {}
+room_owners: Dict[str, str] = {}
+
+sock_tcp: socket.socket | None = None
+sock: socket.socket | None = None
+
+def cleanup_resources() -> None:
     """Clean up all resources before server shutdown"""
     print("\nCleaning up resources...")
     
@@ -37,7 +44,7 @@ def cleanup_resources():
     
     sys.exit(0)
 
-def signal_handler(sig, frame):
+def signal_handler(sig, frame) -> None:
     """Handle Ctrl+C signal"""
     print("\nShutting down server...")
     cleanup_resources()
@@ -46,26 +53,24 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
-def process_message(data):
+def process_message(data: bytes) -> Tuple[bytes, bytes]:
     # data = usernamelen(1byte) + username + message + filler(0x00) = 4096bytes
     username_length = data[0]
     username = data[1:username_length + 1]
     message = data[username_length + 1:4096]
     return username, message
 
-def display_message(data):
+def display_message(data: bytes) -> None:
     # display message to user
     username, message = process_message(data)
     print(f'username: {username.decode()}')
     print(f'message: {message.decode()}')
 
-def recv_client_message():
-    # receive message from client
-    # data = usernamelen(1byte) + username + message + filler(0x00) = 4096bytes
+def recv_client_message() -> Tuple[bytes, Tuple[str, int]]:
     data, address = sock.recvfrom(4096)
     return data, address
 
-def send_message_to_clients(data, sender_token, room_name):
+def send_message_to_clients(data: bytes, sender_token: str, room_name: str) -> bool:
     if not is_valid_chatroom(room_name):
         return False
     
@@ -89,7 +94,7 @@ def send_message_to_clients(data, sender_token, room_name):
     
     return True
 
-def handle_client(data, address):
+def handle_client(data: bytes, address: Tuple[str, int]) -> None:
     try:
         # Display received message
         display_message(data)
@@ -102,7 +107,7 @@ def handle_client(data, address):
         if address in chatrooms[room_name]:
             del chatrooms[room_name][address]
 
-def cleanup_clients():
+def cleanup_clients() -> None:
     while True:
         print('Cleaning up inactive clients...')
         current_time = time.time()
@@ -119,21 +124,20 @@ def cleanup_clients():
 
         time.sleep(60)
 
-def is_valid_chatroom(room_name):
-    """Check if chatroom exists and owner is still active"""
+def is_valid_chatroom(room_name: str) -> bool:
+    """Check if chatroom exists and owner is still active."""
     if room_name not in chatrooms or room_name not in room_owners:
         return False
     owner_token = room_owners[room_name]
     return owner_token in chatrooms[room_name]
 
-def validate_client_token(room_name, token):
-    """Check if client has valid token for the room"""
+def validate_client_token(room_name: str, token: str) -> bool:
+    """Check if client has valid token for the room."""
     if not is_valid_chatroom(room_name):
         return False
-    # Token should match a valid token in the chatroom
     return token in chatrooms[room_name]
 
-def create_chatroom(room_name, owner_address):
+def create_chatroom(room_name: str, owner_address: Tuple[str, int]) -> None:
     if room_name not in chatrooms:
         chatrooms[room_name] = {}
         # Generate owner's token from their port number
@@ -145,7 +149,7 @@ def create_chatroom(room_name, owner_address):
     else:
         print(f'Chatroom {room_name} already exists')
 
-def join_chatroom(room_name, client_address, token):
+def join_chatroom(room_name: str, client_address: Tuple[str, int], token: str) -> bool:
     if not is_valid_chatroom(room_name):
         print(f'Chatroom {room_name} is not valid')
         return False
@@ -154,7 +158,7 @@ def join_chatroom(room_name, client_address, token):
     print(f'Client with token {token} joined chatroom {room_name}')
     return True
 
-def leave_chatroom(room_name, token):
+def leave_chatroom(room_name: str, token: str) -> None:
     if room_name in chatrooms and token in chatrooms[room_name]:
         del chatrooms[room_name][token]
         print(f'Client with token {token} left chatroom {room_name}')
@@ -172,8 +176,8 @@ def leave_chatroom(room_name, token):
     else:
         print(f'Client with token {token} not in chatroom {room_name}')
 
-def process_udp_packet(data):
-    """Process UDP packet with new format"""
+def process_udp_packet(data: bytes) -> Tuple[str, str, str]:
+    """Process UDP packet with new format."""
     # Header
     room_name_size = data[0]
     token_size = data[1]
@@ -186,7 +190,7 @@ def process_udp_packet(data):
     
     return room_name.decode(), token.decode(), message.decode()
 
-def build_udp_packet(room_name, token, message):
+def build_udp_packet(room_name: str, token: str, message: str) -> bytes:
     print(f'room_name: {room_name}, token: {token}, message: {message}')
     packet = bytearray(4096)
     packet[0] = len(room_name)
@@ -196,7 +200,7 @@ def build_udp_packet(room_name, token, message):
     packet[2+len(room_name)+len(token): 2+len(room_name)+len(token)+len(message)] = message.encode()
     return packet
 
-def handle_udp_message(data, address):
+def handle_udp_message(data: bytes, address: Tuple[str, int]) -> None:
     try:
         room_name, token, message = process_udp_packet(data)
         print(f'room_name: {room_name}, token: {token}, message: {message}')
@@ -252,7 +256,7 @@ if operation == 2:
     RoomName = room name
     OperationPayload = unique token
 """
-def build_tcp_packet(operation, state, room_name, operation_payload):
+def build_tcp_packet(operation: int, state: int, room_name: str, operation_payload: str | bytes) -> bytes:
     try:
         # Check size limits
         if len(room_name) > 255:
@@ -279,7 +283,7 @@ def build_tcp_packet(operation, state, room_name, operation_payload):
     except Exception as e:
         return build_error_packet(str(e))
 
-def build_error_packet(error_message):
+def build_error_packet(error_message: str | bytes) -> bytes:
     """Build a packet with operation=1 (error response) and state=1 (failed)"""
     # Ensure error_message is bytes
     error_message_bytes = error_message.encode() if isinstance(error_message, str) else error_message
@@ -318,7 +322,41 @@ def build_error_packet(error_message):
             - server send operation 1, status code 1 to client and error message
 -close tcp connection
 """
-def assign_token(room_name, client_address, is_owner):
+
+
+class ChatServer:
+    def __init__(
+        self,
+        tcp_addr: Tuple[str, int] = (TCP_SERVER_ADDRESS, TCP_SERVER_PORT),
+        udp_addr: Tuple[str, int] = (UDP_SERVER_ADDRESS, UDP_SERVER_PORT),
+    ) -> None:
+        self.tcp_addr = tcp_addr
+        self.udp_addr = udp_addr
+
+    def start(self) -> None:
+        global sock_tcp, sock
+
+        sock_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock_tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock_tcp.bind(self.tcp_addr)
+        sock_tcp.listen(5)
+        print(f'Server listening on {self.tcp_addr[0]}:{self.tcp_addr[1]}')
+        threading.Thread(target=accept_tcp_connections, daemon=True).start()
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(self.udp_addr)
+        print(f'UDP server listening on {self.udp_addr[0]}:{self.udp_addr[1]}')
+
+        threading.Thread(target=cleanup_clients, daemon=True).start()
+
+        while True:
+            try:
+                data, address = sock.recvfrom(4096)
+                threading.Thread(target=handle_udp_message, args=(data, address)).start()
+            except Exception as exc:
+                print(f'Server error: {exc}')
+def assign_token(room_name: str, client_address: Tuple[str, int], is_owner: bool) -> str:
     """ Assign a token to the client 
     Args:
         room_name: room name
@@ -335,14 +373,14 @@ def assign_token(room_name, client_address, is_owner):
         token = str(hash(room_name) % 65535)  # Use modulo to ensure valid port range
     return token
 
-def accept_tcp_connections():
+def accept_tcp_connections() -> None:
     while True:
         conn, addr = sock_tcp.accept()
         print(f'Client {addr} connected')
         thread = threading.Thread(target=handle_tcp_connection, args=(conn, addr))
         thread.start()
 
-def handle_tcp_connection(conn, addr):
+def handle_tcp_connection(conn: socket.socket, addr: Tuple[str, int]) -> None:
     while True:
         data = conn.recv(4096)
         if not data:
@@ -420,53 +458,15 @@ def handle_tcp_connection(conn, addr):
 
 """
 
-if __name__ == '__main__':
+def main() -> None:
+    server = ChatServer()
     try:
-        # Create a TCP socket for the server that will make chatroom and accept clients
-        sock_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # Define tcp server address and port
-        tcp_server_address = '0.0.0.0'
-        tcp_server_port = 9000  # TCP port for chatroom management
-
-        # Set socket options to allow reuse of address
-        sock_tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-        # Bind socket to address and port
-        sock_tcp.bind((tcp_server_address, tcp_server_port))
-        sock_tcp.listen(5)
-        print(f'Server listening on {tcp_server_address}:{tcp_server_port}')
-        # Accept incoming connections subthread
-        tcp_thread = threading.Thread(target=accept_tcp_connections, daemon=True)
-        tcp_thread.start()
-
-        # Create a UDP socket for chat messages
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-        # Define UDP server address and port
-        udp_server_address = '0.0.0.0'
-        udp_server_port = 9001  # UDP port for chat messages
-
-        # Set socket options to allow reuse of address
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-        # Bind socket to address and port
-        sock.bind((udp_server_address, udp_server_port))
-        print(f'UDP server listening on {udp_server_address}:{udp_server_port}')
-
-        # Start thread to clean up inactive clients
-        cleanup_thread = threading.Thread(target=cleanup_clients, daemon=True)
-        cleanup_thread.start()
-
-        while True:
-            try:
-                # Receive message from client
-                data, address = sock.recvfrom(4096)
-                # Handle client message in a new thread
-                thread = threading.Thread(target=handle_udp_message, args=(data, address))
-                thread.start()
-            except Exception as e:
-                print(f'Server error: {e}')
+        server.start()
     except KeyboardInterrupt:
         print("\nServer interrupted by user")
     finally:
         cleanup_resources()
+
+
+if __name__ == "__main__":
+    main()
