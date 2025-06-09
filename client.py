@@ -168,8 +168,16 @@ class ChatClient:
         operation_payload_size = int.from_bytes(response[3:32], byteorder="big")
         self.token = response[32 + roomname_size : 32 + roomname_size + operation_payload_size].decode()
 
-    def start_udp(self) -> None:
-        """Start UDP socket and receiving thread."""
+    def start_udp(self, start_listener: bool = True) -> None:
+        """Start UDP socket and optional receiving thread.
+
+        Parameters
+        ----------
+        start_listener:
+            If ``True`` a background thread will be started that prints
+            incoming messages to the console. Set to ``False`` when the caller
+            wants to handle incoming packets itself (e.g. the Streamlit UI).
+        """
 
         try:
             udp_port = int(self.token)
@@ -178,8 +186,13 @@ class ChatClient:
 
         self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_sock.bind(("", udp_port))
-        thread = threading.Thread(target=recv_and_display_message, args=(self.udp_sock,), daemon=True)
-        thread.start()
+        if start_listener:
+            thread = threading.Thread(
+                target=recv_and_display_message,
+                args=(self.udp_sock,),
+                daemon=True,
+            )
+            thread.start()
 
     def send_message(self, message: str) -> None:
         if not self.udp_sock:

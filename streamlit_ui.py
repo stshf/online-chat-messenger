@@ -31,7 +31,9 @@ def connect():
     try:
         client = st.session_state.client
         client.handshake(username, roomname)
-        client.start_udp()
+        # Start UDP without the default background listener so Streamlit can
+        # manage incoming messages itself.
+        client.start_udp(start_listener=False)
         st.session_state.listening = True
         threading.Thread(target=listener, daemon=True).start()
     except Exception as e:
