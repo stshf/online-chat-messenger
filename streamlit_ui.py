@@ -1,5 +1,6 @@
 import streamlit as st
 import threading
+import queue
 from client import ChatClient, process_udp_message
 
 
@@ -19,18 +20,31 @@ def init_state() -> None:
 
 init_state()
 
-def listener() -> None:
-    client = st.session_state["client"]
-    while st.session_state["listening"]:
+MESSAGE_QUEUE: queue.Queue[bytes] = queue.Queue()
+
+
+def listener(client: ChatClient, stop_event: threading.Event) -> None:
+    """Background thread to receive UDP packets."""
+
+    while not stop_event.is_set():
         try:
             data, _ = client.udp_sock.recvfrom(4096)
-            room, token, msg = process_udp_message(data)
-            st.session_state["messages"].append(
-                f"{room.decode()} - {msg.decode()}"
-            )
-            st.experimental_rerun()
         except Exception:
             break
+        MESSAGE_QUEUE.put(data)
+        # Trigger a UI refresh so new messages appear
+        st.experimental_rerun()
+
+
+def process_incoming() -> None:
+    """Flush queued UDP messages into session state."""
+
+    while not MESSAGE_QUEUE.empty():
+        data = MESSAGE_QUEUE.get()
+        room, _, msg = process_udp_message(data)
+        st.session_state["messages"].append(
+            f"{room.decode()} - {msg.decode()}"
+        )
 
 def connect():
     username = st.session_state.username
@@ -42,9 +56,12 @@ def connect():
         # manage incoming messages itself.
         client.start_udp(start_listener=False)
         st.session_state["listening"] = True
-        threading.Thread(target=listener, daemon=True).start()
+        stop_event = threading.Event()
+        st.session_state["listener_stop_event"] = stop_event
+        threading.Thread(target=listener, args=(client, stop_event), daemon=True).start()
     except Exception as e:
         st.error(str(e))
+    process_incoming()
 
 def send():
     message = st.session_state.message
@@ -54,6 +71,9 @@ def send():
             st.session_state.message = ""
         except Exception as e:
             st.error(str(e))
+
+# Process any incoming messages from the background listener
+process_incoming()
 
 st.title("Simple Chat")
 
