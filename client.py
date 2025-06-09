@@ -1,46 +1,54 @@
+"""Simple chat client implementation."""
+
+from __future__ import annotations
+
 import socket
 import threading
+from typing import Tuple
 
-# TCP server address and port
-tcp_server_address = '0.0.0.0'
-tcp_server_port = 9000  # TCP port for chatroom management
 
-# UDP server address and port
-udp_server_address = '0.0.0.0'
-udp_server_port = 9001  # UDP port for chat messages
+TCP_SERVER_ADDRESS = "0.0.0.0"
+TCP_SERVER_PORT = 9000
+UDP_SERVER_ADDRESS = "0.0.0.0"
+UDP_SERVER_PORT = 9001
 
-address = ''
-port = 0 # auto assign port
+SPACE = "     "
 
-SPACE = '     '
 
-def process_udp_message(data):
+def process_udp_message(data: bytes) -> Tuple[bytes, bytes, bytes]:
+    """Extract room name, token and message from a UDP packet."""
+
     room_name_size = data[0]
     token_size = data[1]
-    room_name = data[2:2 + room_name_size]
-    token = data[2 + room_name_size:2 + room_name_size + token_size]
-    message = data[2 + room_name_size + token_size:4096]
+    room_name = data[2 : 2 + room_name_size]
+    token = data[2 + room_name_size : 2 + room_name_size + token_size]
+    message = data[2 + room_name_size + token_size : 4096]
     return room_name, token, message
 
-def display_recv_message(data):
-    # display message to user
-    room_name, token, message = process_udp_message(data)
-    print(f'\n{SPACE}room_name: {room_name.decode()}')
-    print(f'{SPACE}token: {token.decode()}')
-    print(f'{SPACE}message: {message.decode()}')
 
-def recv_and_display_message():
+def display_recv_message(data: bytes) -> None:
+    """Pretty print received UDP packet."""
+
+    room_name, token, message = process_udp_message(data)
+    print(f"\n{SPACE}room_name: {room_name.decode()}")
+    print(f"{SPACE}token: {token.decode()}")
+    print(f"{SPACE}message: {message.decode()}")
+
+
+def recv_and_display_message(sock: socket.socket) -> None:
+    """Receive UDP packets and display them until the socket is closed."""
+
     while True:
         try:
-            data, server = sock.recvfrom(4096)
-            if data == b'':
+            data, _ = sock.recvfrom(4096)
+            if not data:
                 break
             display_recv_message(data)
         except ConnectionResetError:
-            print('Server disconnected')
+            print("Server disconnected")
             break
-        except Exception as e:
-            print(f'Error receiving message: {e}')
+        except Exception as exc:  # pragma: no cover - best effort logging
+            print(f"Error receiving message: {exc}")
             break
 
 """
@@ -71,7 +79,7 @@ if operation == 2:
     RoomName = room name
     OperationPayload = unique token
 """
-def build_tcp_packet(operation, state, room_name, operation_payload):
+def build_tcp_packet(operation: int, state: int, room_name: str, operation_payload: str) -> bytes:
     try:
         # Check size limits
         if len(room_name) > 255:
@@ -93,7 +101,7 @@ def build_tcp_packet(operation, state, room_name, operation_payload):
     except Exception as e:
         return build_error_packet(str(e))
 
-def build_error_packet(error_message):
+def build_error_packet(error_message: str) -> bytes:
     """Build a packet with operation=1 (error response) and state=1 (failed)"""
     packet = bytearray(4096)
     # Header(32bytes)
@@ -116,7 +124,7 @@ def build_error_packet(error_message):
         - Token(TokenSize)
         - Message(4096 - RoomNameSize - TokenSize)
 """
-def build_udp_packet(room_name, token, message):
+def build_udp_packet(room_name: str, token: str, message: str) -> bytes:
     packet = bytearray(4096)
     packet[0] = len(room_name)
     packet[1] = len(token)
@@ -125,85 +133,93 @@ def build_udp_packet(room_name, token, message):
     packet[2+len(room_name)+len(token): 2+len(room_name)+len(token)+len(message)] = message.encode()
     return packet
 
-if __name__ == '__main__':
-    # tcp connection
-    sock_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        sock_tcp.connect((tcp_server_address, tcp_server_port))
-    except ConnectionRefusedError:
-        print(f'Failed to connect to server at {tcp_server_address}:{tcp_server_port}')
-        print('Please ensure the server is running and the port is correct')
-        exit(1)
 
-    # user input username
-    username = input('Enter your username: ')
-    username_length = len(username)
-    if username_length > 255:
-        print('Username Length exceeds 255 bytes')
-        exit(1)
+class ChatClient:
+    """Encapsulates client side logic for the messenger."""
 
-    # user input roomname
-    roomname = input('Enter the room name: ')
-    roomname_length = len(roomname)
-    if roomname_length > 255:
-        print('Room name exceeds maximum size of 255 bytes')
-        exit(1) 
+    def __init__(
+        self,
+        tcp_addr: Tuple[str, int] = (TCP_SERVER_ADDRESS, TCP_SERVER_PORT),
+        udp_addr: Tuple[str, int] = (UDP_SERVER_ADDRESS, UDP_SERVER_PORT),
+    ) -> None:
+        self.tcp_addr = tcp_addr
+        self.udp_addr = udp_addr
+        self.tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.udp_sock: socket.socket | None = None
+        self.username = ""
+        self.roomname = ""
+        self.token = ""
 
-    # Operation:
-    # 0: request to create chatroom or join chatroom (client send server roomname and username)
-    # 1: server respond to request containing status code
-    # 2: server respond to request containing unique token that is assigned client name 
-    # 0: send request
-    sock_tcp.sendall(build_tcp_packet(0, 0, roomname, username))
-    # 1: receive response
-    response = sock_tcp.recv(4096)
-    if response[0] == 0 and response[1] == 1: # failed
-        print(f'Failed : {response[32:].decode()}')
-        exit(1)
-    #2: receive unique token
-    response = sock_tcp.recv(4096)
-    # decode unique token
-    roomname_size = response[0]
-    operation = response[1]
-    state = response[2]
-    operation_payload_size = int.from_bytes(response[3:32], byteorder='big')
-    room_name = response[32:32 + roomname_size]
-    unique_token = response[32 + roomname_size:32 + roomname_size + operation_payload_size].decode() # e.g) b'27448'
-    print(f'Unique token: {unique_token}')
-    if operation == 2 and state == 1:
-        print(f'Failed: {room_name.decode()}')
-        exit(1)
+    def handshake(self, username: str, roomname: str) -> None:
+        """Perform TCP handshake and store the received token."""
 
-    # udp connection use unique token as port
-    try:
-        udp_port = int(unique_token)  # Convert token to integer
-    except ValueError:
-        print('Error: Invalid token format')
-        exit(1)
-        
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    # empty string means 0.0.0.0
-    sock.bind((address, udp_port))
+        self.username = username
+        self.roomname = roomname
 
-    # Start thread to receive messages from server
-    thread = threading.Thread(target=recv_and_display_message, daemon=True)
-    thread.start()
+        self.tcp_sock.connect(self.tcp_addr)
+        self.tcp_sock.sendall(build_tcp_packet(0, 0, roomname, username))
+
+        response = self.tcp_sock.recv(4096)
+        if response[0] == 0 and response[1] == 1:
+            raise RuntimeError(f"Failed: {response[32:].decode()}")
+
+        response = self.tcp_sock.recv(4096)
+        roomname_size = response[0]
+        operation_payload_size = int.from_bytes(response[3:32], byteorder="big")
+        self.token = response[32 + roomname_size : 32 + roomname_size + operation_payload_size].decode()
+
+    def start_udp(self) -> None:
+        """Start UDP socket and receiving thread."""
+
+        try:
+            udp_port = int(self.token)
+        except ValueError as exc:  # pragma: no cover
+            raise RuntimeError("Invalid token format") from exc
+
+        self.udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.udp_sock.bind(("", udp_port))
+        thread = threading.Thread(target=recv_and_display_message, args=(self.udp_sock,), daemon=True)
+        thread.start()
+
+    def send_message(self, message: str) -> None:
+        if not self.udp_sock:
+            raise RuntimeError("UDP socket not started")
+        payload = build_udp_packet(self.roomname, self.token, message)
+        self.udp_sock.sendto(payload, self.udp_addr)
+
+    def close(self) -> None:
+        if self.udp_sock:
+            self.udp_sock.close()
+        self.tcp_sock.close()
+
+
+def main() -> None:
+    client = ChatClient()
+
+    username = input("Enter your username: ")
+    if len(username) > 255:
+        raise ValueError("Username length exceeds 255 bytes")
+
+    roomname = input("Enter the room name: ")
+    if len(roomname) > 255:
+        raise ValueError("Room name exceeds maximum size of 255 bytes")
+
+    client.handshake(username, roomname)
+    print(f"Unique token: {client.token}")
+    client.start_udp()
 
     try:
         while True:
-            message = input('Enter your message: ')
-            message_length = len(message)
-            if message_length > 4096 - username_length:
-                print('Message Length exceeds 4096 bytes')
-                exit(1)
-
-
-            print(f'roomname: {roomname}, unique_token: {unique_token}, message: {message}')
-            send_message = build_udp_packet(roomname, unique_token, message)
-            # send message to server
-            sock.sendto(send_message, (udp_server_address, udp_server_port))
-            print('Send message to server')
+            message = input("Enter your message: ")
+            if len(message) > 4096 - len(username):
+                print("Message Length exceeds 4096 bytes")
+                continue
+            client.send_message(message)
     except KeyboardInterrupt:
-        print('\nExiting...')
+        print("\nExiting...")
     finally:
-        sock.close()
+        client.close()
+
+
+if __name__ == "__main__":
+    main()
