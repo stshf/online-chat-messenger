@@ -56,3 +56,10 @@ Server: Javascript(Node.js)
         - Node.jsのバージョンを変更
             - 最新バージョン: `nvm use node`
             - 安定バージョン: `nvm use --lts`
+
+## Streamlit UI
+Streamlit版チャットUIを使うには以下のコマンドを実行します。
+```bash
+streamlit run streamlit_ui.py
+```
+
